@@ -48,6 +48,7 @@ set(RENDERER_SOURCES
     src/renderer/pipeline.cpp
     src/renderer/mesh.cpp
     src/renderer/camera.cpp
+    src/renderer/texture.cpp
 )
 
 # Input module
@@ -152,6 +153,9 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     ${CMAKE_BINARY_DIR}/shaders
     $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
 )
+
+# Tools
+add_subdirectory(tools/material_baker)
 
 # Enable testing
 enable_testing()
