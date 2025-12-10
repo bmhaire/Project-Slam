@@ -81,8 +81,10 @@ set(AUDIO_SOURCES
 set(NETWORK_SOURCES
 )
 
-# Game module (placeholder)
+# Game module
 set(GAME_SOURCES
+    src/game/map_generator.cpp
+    src/game/map_mesh.cpp
 )
 
 # Create executable
