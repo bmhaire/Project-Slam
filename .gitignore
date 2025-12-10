@@ -1,0 +1,50 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.dylib
+*.so
+*.lib
+*.dll
+*.exe
+
+# Compiled shaders
+*.spv
+
+# IDE and editor files
+.vscode/
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+*.swp
+*.swo
+*~
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Dependency directories (if using vcpkg, conan, etc.)
+vcpkg_installed/
+
+# Generated documentation
+docs/generated/
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Asset cache (generated textures, etc.)
+assets/cache/
