@@ -302,13 +302,13 @@ void MapMesh::add_quad(std::vector<Vertex>& vertices, std::vector<uint32_t>& ind
     vertices.push_back(v2);
     vertices.push_back(v3);
 
-    // Two triangles
+    // Two triangles (CCW winding for front-face culling)
     indices.push_back(base + 0);
+    indices.push_back(base + 2);
     indices.push_back(base + 1);
-    indices.push_back(base + 2);
     indices.push_back(base + 0);
-    indices.push_back(base + 2);
     indices.push_back(base + 3);
+    indices.push_back(base + 2);
 }
 
 void MapMesh::add_wall_segment(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
@@ -327,7 +327,7 @@ void MapMesh::add_wall_segment(std::vector<Vertex>& vertices, std::vector<uint32
     uint32_t base = static_cast<uint32_t>(vertices.size());
 
     // Calculate UV based on wall length and height
-    float wall_length = length(dir);
+    float wall_length = dir.length();
 
     Vertex v0, v1, v2, v3;
 
@@ -356,12 +356,13 @@ void MapMesh::add_wall_segment(std::vector<Vertex>& vertices, std::vector<uint32
     vertices.push_back(v2);
     vertices.push_back(v3);
 
+    // CCW winding for front-face culling
     indices.push_back(base + 0);
+    indices.push_back(base + 2);
     indices.push_back(base + 1);
-    indices.push_back(base + 2);
     indices.push_back(base + 0);
-    indices.push_back(base + 2);
     indices.push_back(base + 3);
+    indices.push_back(base + 2);
 }
 
 // ============================================================================

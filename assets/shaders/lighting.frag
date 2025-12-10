@@ -45,8 +45,8 @@ layout(std430, binding = 8) readonly buffer LightIndexBuffer {
     uint lightIndices[];
 };
 
-// Shadow maps (cubemap array)
-layout(binding = 9) uniform samplerCubeArrayShadow shadowMaps;
+// Shadow maps (cubemap array) - using regular sampler for MoltenVK compatibility
+layout(binding = 9) uniform samplerCubeArray shadowMaps;
 
 // Push constants
 layout(push_constant) uniform PushConstants {
@@ -118,7 +118,7 @@ uint getClusterIndex(vec2 screenPos, float depth) {
     return x + y * CLUSTER_X + z * CLUSTER_X * CLUSTER_Y;
 }
 
-// Calculate shadow for point light
+// Calculate shadow for point light (manual comparison for MoltenVK compatibility)
 float calculateShadow(uint lightIndex, vec3 fragPos, vec3 lightPos, float lightRadius) {
     if (lightIndex >= MAX_SHADOW_LIGHTS) {
         return 1.0;  // No shadow for lights beyond shadow limit
@@ -127,8 +127,10 @@ float calculateShadow(uint lightIndex, vec3 fragPos, vec3 lightPos, float lightR
     vec3 lightToFrag = fragPos - lightPos;
     float currentDepth = length(lightToFrag) / lightRadius;
 
-    // Sample shadow cubemap
-    float shadow = texture(shadowMaps, vec4(lightToFrag, float(lightIndex)), currentDepth - 0.005);
+    // Sample shadow cubemap and do manual depth comparison
+    float shadowDepth = texture(shadowMaps, vec4(lightToFrag, float(lightIndex))).r;
+    float bias = 0.005;
+    float shadow = currentDepth - bias < shadowDepth ? 1.0 : 0.0;
 
     return shadow;
 }

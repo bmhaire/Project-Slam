@@ -13,6 +13,7 @@
 #include <set>
 #include <algorithm>
 #include <limits>
+#include <fstream>
 
 namespace slam {
 
@@ -50,14 +51,20 @@ void VulkanContext::shutdown() {
 
     cleanup_swapchain();
 
-    for (size_t i = 0; i < config_.max_frames_in_flight; i++) {
-        if (render_finished_semaphores_.size() > i && render_finished_semaphores_[i]) {
+    // Destroy semaphores (one per swapchain image)
+    for (size_t i = 0; i < render_finished_semaphores_.size(); i++) {
+        if (render_finished_semaphores_[i]) {
             vkDestroySemaphore(device_, render_finished_semaphores_[i], nullptr);
         }
-        if (image_available_semaphores_.size() > i && image_available_semaphores_[i]) {
+    }
+    for (size_t i = 0; i < image_available_semaphores_.size(); i++) {
+        if (image_available_semaphores_[i]) {
             vkDestroySemaphore(device_, image_available_semaphores_[i], nullptr);
         }
-        if (in_flight_fences_.size() > i && in_flight_fences_[i]) {
+    }
+    // Destroy fences (one per frame in flight)
+    for (size_t i = 0; i < in_flight_fences_.size(); i++) {
+        if (in_flight_fences_[i]) {
             vkDestroyFence(device_, in_flight_fences_[i], nullptr);
         }
     }
@@ -133,6 +140,9 @@ void VulkanContext::recreate_swapchain() {
     create_image_views();
     create_render_pass();
     create_framebuffers();
+
+    // Resize images_in_flight for new swapchain image count
+    images_in_flight_.resize(swapchain_images_.size(), VK_NULL_HANDLE);
 }
 
 void VulkanContext::wait_idle() {
@@ -142,12 +152,13 @@ void VulkanContext::wait_idle() {
 }
 
 bool VulkanContext::begin_frame(uint32_t& image_index) {
-    // Wait for previous frame
+    // Wait for previous frame using this slot
     vkWaitForFences(device_, 1, &in_flight_fences_[current_frame_], VK_TRUE, UINT64_MAX);
 
-    // Acquire next image
+    // Acquire next image - use a semaphore indexed by the previous image for safety
+    // We'll update to use the acquired image's semaphore after we know which image it is
     VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
-        image_available_semaphores_[current_frame_], VK_NULL_HANDLE, &image_index);
+        image_available_semaphores_[current_frame_ % swapchain_images_.size()], VK_NULL_HANDLE, &image_index);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         recreate_swapchain();
@@ -156,6 +167,16 @@ bool VulkanContext::begin_frame(uint32_t& image_index) {
         fprintf(stderr, "Failed to acquire swapchain image\n");
         return false;
     }
+
+    // Store current image index
+    current_image_index_ = image_index;
+
+    // Wait if this image is still in use by a previous frame
+    if (images_in_flight_[image_index] != VK_NULL_HANDLE) {
+        vkWaitForFences(device_, 1, &images_in_flight_[image_index], VK_TRUE, UINT64_MAX);
+    }
+    // Mark this image as being used by current frame's fence
+    images_in_flight_[image_index] = in_flight_fences_[current_frame_];
 
     // Reset fence only if we're submitting work
     vkResetFences(device_, 1, &in_flight_fences_[current_frame_]);
@@ -204,8 +225,84 @@ bool VulkanContext::begin_frame(uint32_t& image_index) {
     return true;
 }
 
-void VulkanContext::end_frame(uint32_t image_index) {
-    vkCmdEndRenderPass(command_buffers_[current_frame_]);
+bool VulkanContext::begin_frame(uint32_t& image_index, bool start_render_pass) {
+    // Wait for previous frame using this slot
+    vkWaitForFences(device_, 1, &in_flight_fences_[current_frame_], VK_TRUE, UINT64_MAX);
+
+    // Acquire next image
+    VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
+        image_available_semaphores_[current_frame_ % swapchain_images_.size()], VK_NULL_HANDLE, &image_index);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreate_swapchain();
+        return false;
+    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        fprintf(stderr, "Failed to acquire swapchain image\n");
+        return false;
+    }
+
+    // Store current image index
+    current_image_index_ = image_index;
+
+    // Wait if this image is still in use by a previous frame
+    if (images_in_flight_[image_index] != VK_NULL_HANDLE) {
+        vkWaitForFences(device_, 1, &images_in_flight_[image_index], VK_TRUE, UINT64_MAX);
+    }
+    images_in_flight_[image_index] = in_flight_fences_[current_frame_];
+
+    // Reset fence only if we're submitting work
+    vkResetFences(device_, 1, &in_flight_fences_[current_frame_]);
+
+    // Reset and begin command buffer
+    vkResetCommandBuffer(command_buffers_[current_frame_], 0);
+
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = 0;
+
+    if (vkBeginCommandBuffer(command_buffers_[current_frame_], &begin_info) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to begin command buffer\n");
+        return false;
+    }
+
+    if (start_render_pass) {
+        // Begin render pass
+        VkRenderPassBeginInfo render_pass_info{};
+        render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        render_pass_info.renderPass = render_pass_;
+        render_pass_info.framebuffer = framebuffers_[image_index];
+        render_pass_info.renderArea.offset = {0, 0};
+        render_pass_info.renderArea.extent = swapchain_extent_;
+
+        VkClearValue clear_color = {{{0.1f, 0.1f, 0.15f, 1.0f}}};
+        render_pass_info.clearValueCount = 1;
+        render_pass_info.pClearValues = &clear_color;
+
+        vkCmdBeginRenderPass(command_buffers_[current_frame_], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        // Set viewport and scissor
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(swapchain_extent_.width);
+        viewport.height = static_cast<float>(swapchain_extent_.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(command_buffers_[current_frame_], 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapchain_extent_;
+        vkCmdSetScissor(command_buffers_[current_frame_], 0, 1, &scissor);
+    }
+
+    return true;
+}
+
+void VulkanContext::end_frame(uint32_t image_index, bool end_render_pass) {
+    if (end_render_pass) {
+        vkCmdEndRenderPass(command_buffers_[current_frame_]);
+    }
 
     if (vkEndCommandBuffer(command_buffers_[current_frame_]) != VK_SUCCESS) {
         fprintf(stderr, "Failed to record command buffer\n");
@@ -216,7 +313,7 @@ void VulkanContext::end_frame(uint32_t image_index) {
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-    VkSemaphore wait_semaphores[] = {image_available_semaphores_[current_frame_]};
+    VkSemaphore wait_semaphores[] = {image_available_semaphores_[current_frame_ % swapchain_images_.size()]};
     VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     submit_info.waitSemaphoreCount = 1;
     submit_info.pWaitSemaphores = wait_semaphores;
@@ -224,7 +321,58 @@ void VulkanContext::end_frame(uint32_t image_index) {
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &command_buffers_[current_frame_];
 
-    VkSemaphore signal_semaphores[] = {render_finished_semaphores_[current_frame_]};
+    VkSemaphore signal_semaphores[] = {render_finished_semaphores_[image_index]};
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = signal_semaphores;
+
+    if (vkQueueSubmit(graphics_queue_, 1, &submit_info, in_flight_fences_[current_frame_]) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to submit draw command buffer\n");
+        return;
+    }
+
+    // Present
+    VkPresentInfoKHR present_info{};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = signal_semaphores;
+
+    VkSwapchainKHR swapchains[] = {swapchain_};
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = swapchains;
+    present_info.pImageIndices = &image_index;
+
+    VkResult result = vkQueuePresentKHR(present_queue_, &present_info);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        recreate_swapchain();
+    } else if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to present swapchain image\n");
+    }
+
+    current_frame_ = (current_frame_ + 1) % config_.max_frames_in_flight;
+}
+
+void VulkanContext::end_frame(uint32_t image_index) {
+    vkCmdEndRenderPass(command_buffers_[current_frame_]);
+
+    if (vkEndCommandBuffer(command_buffers_[current_frame_]) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to record command buffer\n");
+        return;
+    }
+
+    // Submit command buffer - use image-indexed semaphores
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    VkSemaphore wait_semaphores[] = {image_available_semaphores_[current_frame_ % swapchain_images_.size()]};
+    VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = wait_semaphores;
+    submit_info.pWaitDstStageMask = wait_stages;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffers_[current_frame_];
+
+    VkSemaphore signal_semaphores[] = {render_finished_semaphores_[image_index]};
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = signal_semaphores;
 
@@ -387,6 +535,8 @@ bool VulkanContext::create_logical_device() {
     }
 
     VkPhysicalDeviceFeatures device_features{};
+    device_features.imageCubeArray = VK_TRUE;  // Required for shadow cubemap arrays
+    device_features.samplerAnisotropy = VK_TRUE;  // Better texture quality
 
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -601,9 +751,12 @@ bool VulkanContext::create_command_buffers() {
 }
 
 bool VulkanContext::create_sync_objects() {
-    image_available_semaphores_.resize(config_.max_frames_in_flight);
-    render_finished_semaphores_.resize(config_.max_frames_in_flight);
+    // Use per-swapchain-image semaphores to avoid presentation conflicts
+    size_t image_count = swapchain_images_.size();
+    image_available_semaphores_.resize(image_count);
+    render_finished_semaphores_.resize(image_count);
     in_flight_fences_.resize(config_.max_frames_in_flight);
+    images_in_flight_.resize(image_count, VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo semaphore_info{};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -612,11 +765,19 @@ bool VulkanContext::create_sync_objects() {
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    for (size_t i = 0; i < config_.max_frames_in_flight; i++) {
+    // Create semaphores for each swapchain image
+    for (size_t i = 0; i < image_count; i++) {
         if (vkCreateSemaphore(device_, &semaphore_info, nullptr, &image_available_semaphores_[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(device_, &semaphore_info, nullptr, &render_finished_semaphores_[i]) != VK_SUCCESS ||
-            vkCreateFence(device_, &fence_info, nullptr, &in_flight_fences_[i]) != VK_SUCCESS) {
-            fprintf(stderr, "Failed to create sync objects\n");
+            vkCreateSemaphore(device_, &semaphore_info, nullptr, &render_finished_semaphores_[i]) != VK_SUCCESS) {
+            fprintf(stderr, "Failed to create semaphores\n");
+            return false;
+        }
+    }
+
+    // Create fences for frames in flight
+    for (size_t i = 0; i < config_.max_frames_in_flight; i++) {
+        if (vkCreateFence(device_, &fence_info, nullptr, &in_flight_fences_[i]) != VK_SUCCESS) {
+            fprintf(stderr, "Failed to create fences\n");
             return false;
         }
     }
@@ -884,6 +1045,39 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanContext::debug_callback(
     }
 
     return VK_FALSE;
+}
+
+std::vector<char> VulkanContext::load_shader(const std::string& filename) {
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open()) {
+        fprintf(stderr, "Failed to open shader file: %s\n", filename.c_str());
+        return {};
+    }
+
+    size_t file_size = static_cast<size_t>(file.tellg());
+    std::vector<char> buffer(file_size);
+
+    file.seekg(0);
+    file.read(buffer.data(), file_size);
+    file.close();
+
+    return buffer;
+}
+
+VkShaderModule VulkanContext::create_shader_module(const std::vector<char>& code) {
+    VkShaderModuleCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    create_info.codeSize = code.size();
+    create_info.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+    VkShaderModule shader_module;
+    if (vkCreateShaderModule(device_, &create_info, nullptr, &shader_module) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create shader module\n");
+        return VK_NULL_HANDLE;
+    }
+
+    return shader_module;
 }
 
 } // namespace slam

@@ -37,6 +37,10 @@ public:
     Mesh(const Mesh&) = delete;
     Mesh& operator=(const Mesh&) = delete;
 
+    // Move semantics
+    Mesh(Mesh&& other) noexcept;
+    Mesh& operator=(Mesh&& other) noexcept;
+
     // Create mesh from vertices and indices
     bool create(VulkanContext& context,
                 const std::vector<Vertex>& vertices,
@@ -55,9 +59,12 @@ public:
     // Getters
     uint32_t vertex_count() const { return vertex_count_; }
     uint32_t index_count() const { return index_count_; }
+    VkBuffer vertex_buffer() const { return vertex_buffer_; }
+    VkBuffer index_buffer() const { return index_buffer_; }
 
     // Static mesh generators
     static Mesh create_cube(VulkanContext& context, float size = 1.0f);
+    static Mesh create_cube(VulkanContext& context, float size, const vec3& color);
     static Mesh create_plane(VulkanContext& context, float size = 1.0f);
 
 private:

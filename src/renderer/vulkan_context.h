@@ -58,7 +58,9 @@ public:
 
     // Frame management
     bool begin_frame(uint32_t& image_index);
+    bool begin_frame(uint32_t& image_index, bool start_render_pass);  // Deferred rendering support
     void end_frame(uint32_t image_index);
+    void end_frame(uint32_t image_index, bool end_render_pass);  // Deferred rendering support
 
     // Wait for device idle (use before shutdown or swapchain recreation)
     void wait_idle();
@@ -78,8 +80,14 @@ public:
     const std::vector<VkFramebuffer>& framebuffers() const { return framebuffers_; }
     VkCommandPool command_pool() const { return command_pool_; }
     VkCommandBuffer current_command_buffer() const { return command_buffers_[current_frame_]; }
+    VkFramebuffer current_framebuffer() const { return framebuffers_[current_image_index_]; }
     uint32_t current_frame() const { return current_frame_; }
+    uint32_t current_image_index() const { return current_image_index_; }
     uint32_t image_count() const { return static_cast<uint32_t>(swapchain_images_.size()); }
+
+    // Shader helpers
+    std::vector<char> load_shader(const std::string& filename);
+    VkShaderModule create_shader_module(const std::vector<char>& code);
 
     // Memory helpers
     uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) const;
@@ -170,8 +178,10 @@ private:
     std::vector<VkSemaphore> image_available_semaphores_;
     std::vector<VkSemaphore> render_finished_semaphores_;
     std::vector<VkFence> in_flight_fences_;
+    std::vector<VkFence> images_in_flight_;  // Track which fence each swapchain image is using
 
     uint32_t current_frame_ = 0;
+    uint32_t current_image_index_ = 0;
 
     // Required device extensions
     const std::vector<const char*> device_extensions_ = {

@@ -14,6 +14,44 @@ Mesh::~Mesh() {
     destroy();
 }
 
+Mesh::Mesh(Mesh&& other) noexcept
+    : context_(other.context_)
+    , vertex_buffer_(other.vertex_buffer_)
+    , vertex_buffer_memory_(other.vertex_buffer_memory_)
+    , index_buffer_(other.index_buffer_)
+    , index_buffer_memory_(other.index_buffer_memory_)
+    , vertex_count_(other.vertex_count_)
+    , index_count_(other.index_count_) {
+    other.context_ = nullptr;
+    other.vertex_buffer_ = VK_NULL_HANDLE;
+    other.vertex_buffer_memory_ = VK_NULL_HANDLE;
+    other.index_buffer_ = VK_NULL_HANDLE;
+    other.index_buffer_memory_ = VK_NULL_HANDLE;
+    other.vertex_count_ = 0;
+    other.index_count_ = 0;
+}
+
+Mesh& Mesh::operator=(Mesh&& other) noexcept {
+    if (this != &other) {
+        destroy();
+        context_ = other.context_;
+        vertex_buffer_ = other.vertex_buffer_;
+        vertex_buffer_memory_ = other.vertex_buffer_memory_;
+        index_buffer_ = other.index_buffer_;
+        index_buffer_memory_ = other.index_buffer_memory_;
+        vertex_count_ = other.vertex_count_;
+        index_count_ = other.index_count_;
+        other.context_ = nullptr;
+        other.vertex_buffer_ = VK_NULL_HANDLE;
+        other.vertex_buffer_memory_ = VK_NULL_HANDLE;
+        other.index_buffer_ = VK_NULL_HANDLE;
+        other.index_buffer_memory_ = VK_NULL_HANDLE;
+        other.vertex_count_ = 0;
+        other.index_count_ = 0;
+    }
+    return *this;
+}
+
 bool Mesh::create(VulkanContext& context,
                   const std::vector<Vertex>& vertices,
                   const std::vector<uint32_t>& indices) {
@@ -175,6 +213,65 @@ Mesh Mesh::create_cube(VulkanContext& context, float size) {
     vertices.push_back(Vertex(vec3(h, -h, -h), colors[5], vec3(0, -1, 0), vec2(1, 1)));
     vertices.push_back(Vertex(vec3(h, -h, h), colors[5], vec3(0, -1, 0), vec2(1, 0)));
     vertices.push_back(Vertex(vec3(-h, -h, h), colors[5], vec3(0, -1, 0), vec2(0, 0)));
+    indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+
+    Mesh mesh;
+    mesh.create(context, vertices, indices);
+    return mesh;
+}
+
+Mesh Mesh::create_cube(VulkanContext& context, float size, const vec3& color) {
+    float h = size * 0.5f;
+
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+
+    // Front face
+    uint32_t base = 0;
+    vertices.push_back(Vertex(vec3(-h, -h, h), color, vec3(0, 0, 1), vec2(0, 0)));
+    vertices.push_back(Vertex(vec3(h, -h, h), color, vec3(0, 0, 1), vec2(1, 0)));
+    vertices.push_back(Vertex(vec3(h, h, h), color, vec3(0, 0, 1), vec2(1, 1)));
+    vertices.push_back(Vertex(vec3(-h, h, h), color, vec3(0, 0, 1), vec2(0, 1)));
+    indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+
+    // Back face
+    base = 4;
+    vertices.push_back(Vertex(vec3(h, -h, -h), color, vec3(0, 0, -1), vec2(0, 0)));
+    vertices.push_back(Vertex(vec3(-h, -h, -h), color, vec3(0, 0, -1), vec2(1, 0)));
+    vertices.push_back(Vertex(vec3(-h, h, -h), color, vec3(0, 0, -1), vec2(1, 1)));
+    vertices.push_back(Vertex(vec3(h, h, -h), color, vec3(0, 0, -1), vec2(0, 1)));
+    indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+
+    // Right face
+    base = 8;
+    vertices.push_back(Vertex(vec3(h, -h, h), color, vec3(1, 0, 0), vec2(0, 0)));
+    vertices.push_back(Vertex(vec3(h, -h, -h), color, vec3(1, 0, 0), vec2(1, 0)));
+    vertices.push_back(Vertex(vec3(h, h, -h), color, vec3(1, 0, 0), vec2(1, 1)));
+    vertices.push_back(Vertex(vec3(h, h, h), color, vec3(1, 0, 0), vec2(0, 1)));
+    indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+
+    // Left face
+    base = 12;
+    vertices.push_back(Vertex(vec3(-h, -h, -h), color, vec3(-1, 0, 0), vec2(0, 0)));
+    vertices.push_back(Vertex(vec3(-h, -h, h), color, vec3(-1, 0, 0), vec2(1, 0)));
+    vertices.push_back(Vertex(vec3(-h, h, h), color, vec3(-1, 0, 0), vec2(1, 1)));
+    vertices.push_back(Vertex(vec3(-h, h, -h), color, vec3(-1, 0, 0), vec2(0, 1)));
+    indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+
+    // Top face
+    base = 16;
+    vertices.push_back(Vertex(vec3(-h, h, h), color, vec3(0, 1, 0), vec2(0, 0)));
+    vertices.push_back(Vertex(vec3(h, h, h), color, vec3(0, 1, 0), vec2(1, 0)));
+    vertices.push_back(Vertex(vec3(h, h, -h), color, vec3(0, 1, 0), vec2(1, 1)));
+    vertices.push_back(Vertex(vec3(-h, h, -h), color, vec3(0, 1, 0), vec2(0, 1)));
+    indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+
+    // Bottom face
+    base = 20;
+    vertices.push_back(Vertex(vec3(-h, -h, -h), color, vec3(0, -1, 0), vec2(0, 0)));
+    vertices.push_back(Vertex(vec3(h, -h, -h), color, vec3(0, -1, 0), vec2(1, 0)));
+    vertices.push_back(Vertex(vec3(h, -h, h), color, vec3(0, -1, 0), vec2(1, 1)));
+    vertices.push_back(Vertex(vec3(-h, -h, h), color, vec3(0, -1, 0), vec2(0, 1)));
     indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
 
     Mesh mesh;

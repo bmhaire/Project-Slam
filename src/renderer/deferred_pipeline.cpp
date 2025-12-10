@@ -750,6 +750,11 @@ void DeferredPipeline::end_geometry_pass(VkCommandBuffer cmd) {
 }
 
 void DeferredPipeline::draw_mesh(VkCommandBuffer cmd, const Mesh& mesh, const mat4& model) {
+    // Skip meshes with invalid buffers
+    if (mesh.vertex_buffer() == VK_NULL_HANDLE || mesh.index_count() == 0) {
+        return;
+    }
+
     GeometryPushConstants push{};
     push.model = model;
     push.view = view_matrix_;
@@ -879,6 +884,11 @@ void DeferredPipeline::render_shadows(VkCommandBuffer cmd, const std::vector<Mes
 
             // Draw all meshes
             for (size_t i = 0; i < meshes.size(); i++) {
+                // Skip null meshes or meshes with invalid buffers
+                if (!meshes[i] || meshes[i]->vertex_buffer() == VK_NULL_HANDLE) {
+                    continue;
+                }
+
                 ShadowPushConstants push{};
                 push.light_space_matrix = proj * view * transforms[i];
                 push.light_pos = vec4(light.position.x, light.position.y,

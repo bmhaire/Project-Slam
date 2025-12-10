@@ -84,19 +84,19 @@ public:
             return false;
         }
 
-        // Initialize deferred pipeline
-        printf("  Initializing deferred renderer...\n");
-        if (!deferred_.init(vulkan_, window_.width(), window_.height())) {
+        // Initialize deferred PBR pipeline
+        printf("  Initializing renderer...\n");
+        if (!deferred_.init(vulkan_, window_.framebuffer_width(), window_.framebuffer_height())) {
             fprintf(stderr, "Failed to create deferred pipeline\n");
-            // Fall back to basic pipeline for now
-            use_deferred_ = false;
-            if (!pipeline_.create(vulkan_, "shaders/basic.vert.spv", "shaders/basic.frag.spv")) {
-                fprintf(stderr, "Failed to create basic pipeline\n");
-                return false;
-            }
-        } else {
-            use_deferred_ = true;
+            return false;
         }
+
+        // Create basic forward pipeline as fallback
+        if (!pipeline_.create(vulkan_, "shaders/basic.vert.spv", "shaders/basic.frag.spv")) {
+            fprintf(stderr, "Failed to create graphics pipeline\n");
+            return false;
+        }
+        use_deferred_ = true;  // Enable deferred PBR rendering
 
         // Generate procedural map
         printf("  Generating procedural map (%dx%d)...\n", config_.map_size, config_.map_size);
@@ -116,12 +116,16 @@ public:
         mesh_config.wall_height = 4.0f;
         mesh_config.uv_scale = 0.25f;
         mesh_config.smooth_walls = true;
+        mesh_config.generate_ceiling = true;
 
         map_mesh_ = std::make_unique<MapMesh>();
         map_mesh_->generate(vulkan_, *map_generator_, mesh_config);
 
         printf("    Floor vertices: %u\n", map_mesh_->floor_mesh().vertex_count());
         printf("    Wall vertices: %u\n", map_mesh_->wall_mesh().vertex_count());
+        if (map_mesh_->has_ceiling()) {
+            printf("    Ceiling vertices: %u\n", map_mesh_->ceiling_mesh().vertex_count());
+        }
 
         // Generate prop meshes
         printf("  Generating props...\n");
@@ -312,9 +316,9 @@ public:
     }
 
     void render_deferred() {
-        // Begin frame
+        // Begin frame without auto render pass - deferred manages its own
         uint32_t image_index;
-        if (!vulkan_.begin_frame(image_index)) {
+        if (!vulkan_.begin_frame(image_index, false)) {
             return; // Swapchain recreation in progress
         }
 
@@ -332,6 +336,46 @@ public:
         // Set view/projection for geometry pass
         deferred_.set_view_projection(view, proj);
 
+        // ---- Shadow Pass ----
+        // Collect all shadow-casting meshes
+        std::vector<Mesh*> shadow_meshes;
+        std::vector<mat4> shadow_transforms;
+
+        if (map_mesh_->has_floor()) {
+            shadow_meshes.push_back(&map_mesh_->floor_mesh());
+            shadow_transforms.push_back(mat4::identity());
+        }
+        if (map_mesh_->has_walls()) {
+            shadow_meshes.push_back(&map_mesh_->wall_mesh());
+            shadow_transforms.push_back(mat4::identity());
+        }
+        if (map_mesh_->has_ceiling()) {
+            shadow_meshes.push_back(&map_mesh_->ceiling_mesh());
+            shadow_transforms.push_back(mat4::identity());
+        }
+
+        // Add props to shadow casters
+        for (const PropPlacement& prop : map_generator_->props()) {
+            mat4 model = translate(prop.position);
+            model = rotate(model, prop.rotation, vec3(0, 1, 0));
+            model = scale(model, vec3(prop.scale));
+
+            Mesh* mesh = nullptr;
+            switch (prop.prop_type) {
+                case 0: mesh = column_mesh_.get(); break;
+                case 1: mesh = crate_mesh_.get(); break;
+                case 2: mesh = barrel_mesh_.get(); break;
+            }
+
+            if (mesh) {
+                shadow_meshes.push_back(mesh);
+                shadow_transforms.push_back(model);
+            }
+        }
+
+        // Render shadow maps for all lights
+        deferred_.render_shadows(cmd, shadow_meshes, shadow_transforms);
+
         // ---- Geometry Pass ----
         deferred_.begin_geometry_pass(cmd);
 
@@ -343,6 +387,11 @@ public:
         // Draw walls
         if (map_mesh_->has_walls()) {
             deferred_.draw_mesh(cmd, map_mesh_->wall_mesh(), mat4::identity());
+        }
+
+        // Draw ceiling
+        if (map_mesh_->has_ceiling()) {
+            deferred_.draw_mesh(cmd, map_mesh_->ceiling_mesh(), mat4::identity());
         }
 
         // Draw props
@@ -374,8 +423,8 @@ public:
 
         deferred_.end_lighting_pass(cmd);
 
-        // End frame
-        vulkan_.end_frame(image_index);
+        // End frame without ending render pass - lighting pass already ended it
+        vulkan_.end_frame(image_index, false);
     }
 
     void render_basic() {
@@ -418,6 +467,20 @@ public:
 
             pipeline_.push_constants(cmd, constants);
             map_mesh_->wall_mesh().draw(cmd);
+        }
+
+        // Draw ceiling
+        if (map_mesh_->has_ceiling()) {
+            map_mesh_->ceiling_mesh().bind(cmd);
+
+            PushConstants constants;
+            mat4 model = mat4::identity();
+            memcpy(constants.model, model.data(), sizeof(float) * 16);
+            memcpy(constants.view, view.data(), sizeof(float) * 16);
+            memcpy(constants.projection, proj.data(), sizeof(float) * 16);
+
+            pipeline_.push_constants(cmd, constants);
+            map_mesh_->ceiling_mesh().draw(cmd);
         }
 
         vulkan_.end_frame(image_index);

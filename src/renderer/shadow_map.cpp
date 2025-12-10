@@ -232,8 +232,10 @@ bool ShadowMapArray::create_sampler() {
     sampler_info.mipLodBias = 0.0f;
     sampler_info.anisotropyEnable = VK_FALSE;
     sampler_info.maxAnisotropy = 1.0f;
-    sampler_info.compareEnable = VK_TRUE;
-    sampler_info.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    // Disable comparison sampler for MoltenVK compatibility
+    // Shadow comparison will be done manually in the shader
+    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.compareOp = VK_COMPARE_OP_NEVER;
     sampler_info.minLod = 0.0f;
     sampler_info.maxLod = 0.0f;
     sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;

@@ -223,8 +223,8 @@ void LightManager::update_clusters(const mat4& view, const mat4& projection,
 
                 // Simple AABB in view space for culling
                 // Calculate view-space corners of cluster frustum
-                float aspect = std::abs(projection.data[5] / projection.data[0]);
-                float tan_half_fov = 1.0f / projection.data[5];
+                float aspect = std::abs(projection.data()[5] / projection.data()[0]);
+                float tan_half_fov = 1.0f / projection.data()[5];
 
                 vec3 cluster_min(
                     ndc_x_min * z_far * tan_half_fov * aspect,
