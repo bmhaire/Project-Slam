@@ -18,8 +18,6 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 # macOS/Apple Silicon specific settings
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
-    # Enable universal binary for Apple Silicon + Intel (optional)
-    # set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
     set(CMAKE_OSX_ARCHITECTURES "arm64")
 endif()
 
@@ -29,8 +27,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Find required packages
-# Vulkan (via MoltenVK on macOS)
 find_package(Vulkan REQUIRED)
+find_package(glfw3 3.3 REQUIRED)
 
 # Include directories
 include_directories(
@@ -39,83 +37,66 @@ include_directories(
     ${Vulkan_INCLUDE_DIRS}
 )
 
-# Source files (will be populated as development progresses)
+# Source files
 set(ENGINE_SOURCES
     src/main.cpp
 )
 
 # Renderer module
 set(RENDERER_SOURCES
-    # src/renderer/vulkan_context.cpp
-    # src/renderer/deferred_pipeline.cpp
-    # src/renderer/shadow_mapping.cpp
-    # src/renderer/material.cpp
-    # src/renderer/mesh.cpp
-)
-
-# Physics module
-set(PHYSICS_SOURCES
-    # src/physics/physics_world.cpp
-    # src/physics/character_controller.cpp
-    # src/physics/ragdoll.cpp
-)
-
-# Animation module
-set(ANIMATION_SOURCES
-    # src/animation/skeleton.cpp
-    # src/animation/animation_clip.cpp
-    # src/animation/animation_state_machine.cpp
-    # src/animation/ik_solver.cpp
-)
-
-# Particles module
-set(PARTICLES_SOURCES
-    # src/particles/particle_system.cpp
-    # src/particles/emitter.cpp
-)
-
-# Audio module
-set(AUDIO_SOURCES
-    # src/audio/audio_engine.cpp
-    # src/audio/synthesizer.cpp
-)
-
-# Network module
-set(NETWORK_SOURCES
-    # src/network/network_manager.cpp
-    # src/network/client.cpp
-    # src/network/server.cpp
-)
-
-# Game module
-set(GAME_SOURCES
-    # src/game/player.cpp
-    # src/game/weapon.cpp
-    # src/game/game_mode.cpp
-    # src/game/map_generator.cpp
+    src/renderer/vulkan_context.cpp
+    src/renderer/pipeline.cpp
+    src/renderer/mesh.cpp
+    src/renderer/camera.cpp
 )
 
 # Input module
 set(INPUT_SOURCES
-    # src/input/input_manager.cpp
+    src/input/window.cpp
+    src/input/input_manager.cpp
+)
+
+# Physics module (placeholder)
+set(PHYSICS_SOURCES
+)
+
+# Animation module (placeholder)
+set(ANIMATION_SOURCES
+)
+
+# Particles module (placeholder)
+set(PARTICLES_SOURCES
+)
+
+# Audio module (placeholder)
+set(AUDIO_SOURCES
+)
+
+# Network module (placeholder)
+set(NETWORK_SOURCES
+)
+
+# Game module (placeholder)
+set(GAME_SOURCES
 )
 
 # Create executable
 add_executable(${PROJECT_NAME}
     ${ENGINE_SOURCES}
     ${RENDERER_SOURCES}
+    ${INPUT_SOURCES}
     ${PHYSICS_SOURCES}
     ${ANIMATION_SOURCES}
     ${PARTICLES_SOURCES}
     ${AUDIO_SOURCES}
     ${NETWORK_SOURCES}
     ${GAME_SOURCES}
-    ${INPUT_SOURCES}
 )
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     ${Vulkan_LIBRARIES}
+    glfw
 )
 
 # macOS frameworks
@@ -130,32 +111,47 @@ if(APPLE)
     )
 endif()
 
-# External libraries (to be added)
-# find_package(assimp REQUIRED)
-# find_package(enet REQUIRED)
-# find_package(bullet REQUIRED)
-
 # Shader compilation (GLSL to SPIR-V)
-# find_program(GLSLC glslc)
-# if(GLSLC)
-#     file(GLOB_RECURSE SHADER_SOURCES
-#         "${CMAKE_SOURCE_DIR}/assets/shaders/*.vert"
-#         "${CMAKE_SOURCE_DIR}/assets/shaders/*.frag"
-#         "${CMAKE_SOURCE_DIR}/assets/shaders/*.comp"
-#     )
-#     foreach(SHADER ${SHADER_SOURCES})
-#         get_filename_component(SHADER_NAME ${SHADER} NAME)
-#         set(SHADER_OUTPUT "${CMAKE_BINARY_DIR}/shaders/${SHADER_NAME}.spv")
-#         add_custom_command(
-#             OUTPUT ${SHADER_OUTPUT}
-#             COMMAND ${GLSLC} ${SHADER} -o ${SHADER_OUTPUT}
-#             DEPENDS ${SHADER}
-#         )
-#         list(APPEND SHADER_OUTPUTS ${SHADER_OUTPUT})
-#     endforeach()
-#     add_custom_target(shaders DEPENDS ${SHADER_OUTPUTS})
-#     add_dependencies(${PROJECT_NAME} shaders)
-# endif()
+find_program(GLSLC glslc)
+if(GLSLC)
+    message(STATUS "Found glslc: ${GLSLC}")
+
+    # Create shader output directory
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/shaders)
+
+    # Find all shader files
+    file(GLOB_RECURSE SHADER_SOURCES
+        "${CMAKE_SOURCE_DIR}/assets/shaders/*.vert"
+        "${CMAKE_SOURCE_DIR}/assets/shaders/*.frag"
+        "${CMAKE_SOURCE_DIR}/assets/shaders/*.comp"
+    )
+
+    # Compile each shader
+    foreach(SHADER ${SHADER_SOURCES})
+        get_filename_component(SHADER_NAME ${SHADER} NAME)
+        set(SHADER_OUTPUT "${CMAKE_BINARY_DIR}/shaders/${SHADER_NAME}.spv")
+        add_custom_command(
+            OUTPUT ${SHADER_OUTPUT}
+            COMMAND ${GLSLC} ${SHADER} -o ${SHADER_OUTPUT}
+            DEPENDS ${SHADER}
+            COMMENT "Compiling shader ${SHADER_NAME}"
+        )
+        list(APPEND SHADER_OUTPUTS ${SHADER_OUTPUT})
+    endforeach()
+
+    # Add shader target
+    add_custom_target(shaders ALL DEPENDS ${SHADER_OUTPUTS})
+    add_dependencies(${PROJECT_NAME} shaders)
+else()
+    message(WARNING "glslc not found - shaders will not be compiled")
+endif()
+
+# Copy shaders to binary directory for runtime access
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_BINARY_DIR}/shaders
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
+)
 
 # Enable testing
 enable_testing()
@@ -164,3 +160,4 @@ add_subdirectory(tests EXCLUDE_FROM_ALL)
 # Install rules
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)
 install(DIRECTORY assets/ DESTINATION share/${PROJECT_NAME}/assets)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/shaders/ DESTINATION share/${PROJECT_NAME}/shaders)
