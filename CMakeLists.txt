@@ -49,6 +49,10 @@ set(RENDERER_SOURCES
     src/renderer/mesh.cpp
     src/renderer/camera.cpp
     src/renderer/texture.cpp
+    src/renderer/gbuffer.cpp
+    src/renderer/light.cpp
+    src/renderer/shadow_map.cpp
+    src/renderer/deferred_pipeline.cpp
 )
 
 # Input module
