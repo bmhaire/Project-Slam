@@ -109,6 +109,7 @@ private:
     std::vector<PointLight> lights_;
     vec3 ambient_color_ = vec3(0.03f);
     float ambient_intensity_ = 1.0f;
+    bool lights_dirty_ = false;  // Track if light data needs uploading
 
     // GPU buffers
     VkBuffer light_buffer_ = VK_NULL_HANDLE;

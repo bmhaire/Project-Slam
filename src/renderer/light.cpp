@@ -130,59 +130,83 @@ bool LightManager::create_buffers() {
 
 int LightManager::add_light(const PointLight& light) {
     if (lights_.size() >= MAX_POINT_LIGHTS) {
-        fprintf(stderr, "Maximum light count reached\n");
+        fprintf(stderr, "LightManager: Maximum light count (%u) reached\n", MAX_POINT_LIGHTS);
         return -1;
     }
     lights_.push_back(light);
+    lights_dirty_ = true;
     return static_cast<int>(lights_.size() - 1);
 }
 
 void LightManager::remove_light(int index) {
     if (index >= 0 && index < static_cast<int>(lights_.size())) {
         lights_.erase(lights_.begin() + index);
+        lights_dirty_ = true;
+    } else {
+        fprintf(stderr, "LightManager: remove_light() index %d out of bounds (size: %zu)\n",
+                index, lights_.size());
     }
 }
 
 void LightManager::clear_lights() {
     lights_.clear();
+    lights_dirty_ = true;
 }
 
 void LightManager::set_light_position(int index, const vec3& position) {
     if (index >= 0 && index < static_cast<int>(lights_.size())) {
         lights_[index].position = position;
+        lights_dirty_ = true;
+    } else {
+        fprintf(stderr, "LightManager: set_light_position() index %d out of bounds (size: %zu)\n",
+                index, lights_.size());
     }
 }
 
 void LightManager::set_light_color(int index, const vec3& color) {
     if (index >= 0 && index < static_cast<int>(lights_.size())) {
         lights_[index].color = color;
+        lights_dirty_ = true;
+    } else {
+        fprintf(stderr, "LightManager: set_light_color() index %d out of bounds (size: %zu)\n",
+                index, lights_.size());
     }
 }
 
 void LightManager::set_light_intensity(int index, float intensity) {
     if (index >= 0 && index < static_cast<int>(lights_.size())) {
         lights_[index].intensity = intensity;
+        lights_dirty_ = true;
+    } else {
+        fprintf(stderr, "LightManager: set_light_intensity() index %d out of bounds (size: %zu)\n",
+                index, lights_.size());
     }
 }
 
 void LightManager::set_light_radius(int index, float radius) {
     if (index >= 0 && index < static_cast<int>(lights_.size())) {
         lights_[index].radius = radius;
+        lights_dirty_ = true;
+    } else {
+        fprintf(stderr, "LightManager: set_light_radius() index %d out of bounds (size: %zu)\n",
+                index, lights_.size());
     }
 }
 
 void LightManager::set_ambient(const vec3& color, float intensity) {
     ambient_color_ = color;
     ambient_intensity_ = intensity;
+    // Ambient changes are always uploaded in upload()
 }
 
 void LightManager::upload(const vec3& camera_pos) {
-    // Copy lights to GPU
-    if (!lights_.empty() && mapped_lights_) {
+    // Copy lights to GPU only if dirty (reduces unnecessary memory copies)
+    if (lights_dirty_ && !lights_.empty() && mapped_lights_) {
         memcpy(mapped_lights_, lights_.data(), sizeof(PointLight) * lights_.size());
+        lights_dirty_ = false;
     }
 
-    // Update uniforms
+    // Update uniforms (always update camera position and light count)
     if (mapped_uniforms_) {
         mapped_uniforms_->camera_position = vec4(camera_pos.x, camera_pos.y, camera_pos.z, 0.0f);
         mapped_uniforms_->ambient_color = vec4(
@@ -223,24 +247,33 @@ void LightManager::update_clusters(const mat4& view, const mat4& projection,
 
                 // Simple AABB in view space for culling
                 // Calculate view-space corners of cluster frustum
+                // Note: projection[1][1] is negative in Vulkan, so use abs
                 float aspect = std::abs(projection.data()[5] / projection.data()[0]);
-                float tan_half_fov = 1.0f / projection.data()[5];
+                float tan_half_fov = 1.0f / std::abs(projection.data()[5]);
 
+                // Calculate frustum bounds at both near and far depth slices
+                // At each depth, compute the x/y extent based on NDC coords
+                float x_min_near = ndc_x_min * z_near * tan_half_fov * aspect;
+                float x_max_near = ndc_x_max * z_near * tan_half_fov * aspect;
+                float x_min_far = ndc_x_min * z_far * tan_half_fov * aspect;
+                float x_max_far = ndc_x_max * z_far * tan_half_fov * aspect;
+
+                float y_min_near = ndc_y_min * z_near * tan_half_fov;
+                float y_max_near = ndc_y_max * z_near * tan_half_fov;
+                float y_min_far = ndc_y_min * z_far * tan_half_fov;
+                float y_max_far = ndc_y_max * z_far * tan_half_fov;
+
+                // AABB encompasses the entire cluster frustum
                 vec3 cluster_min(
-                    ndc_x_min * z_far * tan_half_fov * aspect,
-                    ndc_y_min * z_far * tan_half_fov,
-                    -z_far
+                    std::min({x_min_near, x_max_near, x_min_far, x_max_far}),
+                    std::min({y_min_near, y_max_near, y_min_far, y_max_far}),
+                    -z_far  // View space Z is negative
                 );
                 vec3 cluster_max(
-                    ndc_x_max * z_near * tan_half_fov * aspect,
-                    ndc_y_max * z_near * tan_half_fov,
-                    -z_near
+                    std::max({x_min_near, x_max_near, x_min_far, x_max_far}),
+                    std::max({y_min_near, y_max_near, y_min_far, y_max_far}),
+                    -z_near  // View space Z is negative
                 );
-
-                // Ensure min < max
-                if (cluster_min.x > cluster_max.x) std::swap(cluster_min.x, cluster_max.x);
-                if (cluster_min.y > cluster_max.y) std::swap(cluster_min.y, cluster_max.y);
-                if (cluster_min.z > cluster_max.z) std::swap(cluster_min.z, cluster_max.z);
 
                 // Set cluster offset
                 mapped_clusters_[cluster_idx].offset = total_indices;

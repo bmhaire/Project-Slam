@@ -151,14 +151,28 @@ void DeferredPipeline::destroy() {
 }
 
 bool DeferredPipeline::resize(uint32_t width, uint32_t height) {
+    // Store old dimensions in case we need to rollback
+    uint32_t old_width = width_;
+    uint32_t old_height = height_;
+
     width_ = width;
     height_ = height;
 
     if (!gbuffer_.resize(width, height)) {
+        // Restore old dimensions on failure
+        width_ = old_width;
+        height_ = old_height;
         return false;
     }
 
-    return update_descriptor_sets();
+    if (!update_descriptor_sets()) {
+        // G-buffer was resized but descriptors failed - this is a critical error
+        // The dimensions are already updated to match the g-buffer
+        fprintf(stderr, "DeferredPipeline: Failed to update descriptors after resize\n");
+        return false;
+    }
+
+    return true;
 }
 
 bool DeferredPipeline::create_descriptor_sets() {
@@ -750,6 +764,12 @@ void DeferredPipeline::end_geometry_pass(VkCommandBuffer cmd) {
 }
 
 void DeferredPipeline::draw_mesh(VkCommandBuffer cmd, const Mesh& mesh, const mat4& model) {
+    // Validate command buffer
+    if (cmd == VK_NULL_HANDLE) {
+        fprintf(stderr, "DeferredPipeline::draw_mesh() called with null command buffer\n");
+        return;
+    }
+
     // Skip meshes with invalid buffers
     if (mesh.vertex_buffer() == VK_NULL_HANDLE || mesh.index_count() == 0) {
         return;

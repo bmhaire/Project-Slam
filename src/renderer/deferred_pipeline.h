@@ -118,9 +118,9 @@ private:
     VkBuffer quad_vertex_buffer_ = VK_NULL_HANDLE;
     VkDeviceMemory quad_vertex_memory_ = VK_NULL_HANDLE;
 
-    // Current frame state
-    mat4 view_matrix_;
-    mat4 proj_matrix_;
+    // Current frame state (initialized to identity to prevent undefined behavior on first frame)
+    mat4 view_matrix_ = mat4::identity();
+    mat4 proj_matrix_ = mat4::identity();
 };
 
 } // namespace slam

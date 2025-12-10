@@ -55,6 +55,16 @@ Mesh& Mesh::operator=(Mesh&& other) noexcept {
 bool Mesh::create(VulkanContext& context,
                   const std::vector<Vertex>& vertices,
                   const std::vector<uint32_t>& indices) {
+    // Validate input - empty meshes are not allowed
+    if (vertices.empty()) {
+        fprintf(stderr, "Mesh::create() called with empty vertices\n");
+        return false;
+    }
+    if (indices.empty()) {
+        fprintf(stderr, "Mesh::create() called with empty indices\n");
+        return false;
+    }
+
     context_ = &context;
     vertex_count_ = static_cast<uint32_t>(vertices.size());
     index_count_ = static_cast<uint32_t>(indices.size());

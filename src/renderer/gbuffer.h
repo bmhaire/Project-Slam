@@ -87,6 +87,7 @@ private:
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
     VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
     VkSampler sampler_ = VK_NULL_HANDLE;
+    VkSampler depth_sampler_ = VK_NULL_HANDLE;  // Separate sampler for depth texture
 };
 
 } // namespace slam

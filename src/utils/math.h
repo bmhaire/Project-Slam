@@ -248,7 +248,7 @@ struct mat4 {
                   m[4] * m[2]  * m[9]  + m[8]  * m[1]  * m[6]  - m[8]  * m[2]  * m[5];
 
         float det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
-        if (det == 0) return mat4(1.0f); // Return identity if singular
+        if (std::abs(det) < EPSILON) return mat4(1.0f); // Return identity if singular
 
         float inv_det = 1.0f / det;
         mat4 result;
@@ -337,6 +337,7 @@ inline mat4 perspective(float fov_y, float aspect, float near_plane, float far_p
     result[2][2] = far_plane / (near_plane - far_plane);
     result[2][3] = -1.0f;
     result[3][2] = (far_plane * near_plane) / (near_plane - far_plane);
+    // Note: result[3][3] stays 0.0f for perspective projection (w = -z after transform)
     return result;
 }
 

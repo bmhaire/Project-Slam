@@ -92,6 +92,11 @@ void GBuffer::destroy() {
         sampler_ = VK_NULL_HANDLE;
     }
 
+    if (depth_sampler_) {
+        vkDestroySampler(device, depth_sampler_, nullptr);
+        depth_sampler_ = VK_NULL_HANDLE;
+    }
+
     destroy_attachment(position_);
     destroy_attachment(normal_);
     destroy_attachment(albedo_);
@@ -351,6 +356,7 @@ bool GBuffer::create_framebuffer() {
 }
 
 bool GBuffer::create_sampler() {
+    // Color attachment sampler
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_NEAREST;
@@ -367,7 +373,29 @@ bool GBuffer::create_sampler() {
     sampler_info.maxLod = 0.0f;
     sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 
-    return vkCreateSampler(context_->device(), &sampler_info, nullptr, &sampler_) == VK_SUCCESS;
+    if (vkCreateSampler(context_->device(), &sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
+        return false;
+    }
+
+    // Depth sampler - configured for depth texture sampling
+    VkSamplerCreateInfo depth_sampler_info{};
+    depth_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    depth_sampler_info.magFilter = VK_FILTER_NEAREST;
+    depth_sampler_info.minFilter = VK_FILTER_NEAREST;
+    depth_sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    depth_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depth_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depth_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depth_sampler_info.mipLodBias = 0.0f;
+    depth_sampler_info.anisotropyEnable = VK_FALSE;
+    depth_sampler_info.maxAnisotropy = 1.0f;
+    depth_sampler_info.compareEnable = VK_FALSE;  // We're reading raw depth values
+    depth_sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    depth_sampler_info.minLod = 0.0f;
+    depth_sampler_info.maxLod = 0.0f;
+    depth_sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;  // Use 1.0 for depth border
+
+    return vkCreateSampler(context_->device(), &depth_sampler_info, nullptr, &depth_sampler_) == VK_SUCCESS;
 }
 
 VkDescriptorImageInfo GBuffer::position_descriptor() const {
@@ -387,7 +415,7 @@ VkDescriptorImageInfo GBuffer::material_descriptor() const {
 }
 
 VkDescriptorImageInfo GBuffer::depth_descriptor() const {
-    return {sampler_, depth_.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+    return {depth_sampler_, depth_.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
 }
 
 } // namespace slam
