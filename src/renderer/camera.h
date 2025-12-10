@@ -19,6 +19,8 @@ public:
     // Setup
     void set_position(const vec3& position);
     void set_rotation(float pitch, float yaw);
+    void set_pitch(float pitch_radians) { pitch_ = pitch_radians; }
+    void set_yaw(float yaw_radians) { yaw_ = yaw_radians; }
     void set_aspect_ratio(float aspect);
     void set_fov(float fov_degrees);
     void set_near_far(float near_plane, float far_plane);
